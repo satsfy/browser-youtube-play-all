@@ -1,7 +1,7 @@
 import EventEmitter from "eventemitter3";
 import { logger } from "../../logger";
 import { Channel } from "./channel";
-import { fetchChannelId } from "./youtube-api";
+import { resolveChannelId } from "./youtube-api";
 import { YoutubeDOM } from "./youtube-dom";
 
 export const YTD_EVENTS = {
@@ -66,7 +66,7 @@ function setNavigationHooks() {
 function setChannelHooks() {
   let currentChannel: Channel | null = null;
   ytxEventEmitter.on(YTX_EVENTS.NAVIGATION_END, async () => {
-    const channelId = await fetchChannelId(window.location.href);
+    const channelId = await resolveChannelIdWithRetry(window.location.href);
     const oldChannelId = currentChannel?.id;
     const isChannelIdChanged = channelId !== oldChannelId;
     if (channelId === undefined) {
@@ -81,6 +81,20 @@ function setChannelHooks() {
       });
     }
   });
+}
+
+async function resolveChannelIdWithRetry(
+  channelUrl: string,
+): Promise<string | undefined> {
+  // Some environments expose page data with a short delay after navigation.
+  for (let i = 0; i < 4; i += 1) {
+    const channelId = await resolveChannelId(channelUrl, false);
+    if (channelId) {
+      return channelId;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return resolveChannelId(channelUrl, true);
 }
 
 function setCategoryHooks() {

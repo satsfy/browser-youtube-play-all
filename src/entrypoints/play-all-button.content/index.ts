@@ -14,9 +14,6 @@ export default defineContentScript({
 function main() {
   setHooks();
 
-  ytxEventEmitter.on(YTX_EVENTS.CHANNEL_ENTER, async (channel) => {
-    await renderDropdown(channel);
-  });
   [
     YTX_EVENTS.CATEGORY_ENTER,
     YTX_EVENTS.SORT_CHANGED,
@@ -26,20 +23,19 @@ function main() {
       await maybeRenderButton(channel);
     });
   });
-  ytxEventEmitter.on(YTX_EVENTS.CATEGORY_ENTER, async (channel) => {
-    await maybeRenderButton(channel);
-  });
-  ytxEventEmitter.on(YTX_EVENTS.SORT_CHANGED, async (channel) => {
-    await maybeRenderButton(channel);
-  });
-  ytxEventEmitter.on(YTX_EVENTS.SORT_RERENDERED, async (channel) => {
-    await maybeRenderButton(channel);
-  });
+
+  // Fallback for environments where the initial load does not emit
+  // YouTube's navigation-end event to the content script.
+  ytxEventEmitter.emit(YTX_EVENTS.NAVIGATION_END);
 }
 
 async function maybeRenderButton(channel: Channel) {
-  const sortButtonHolder = YoutubeDOM.sortButtonHolder;
+  const sortButtonHolder = await waitForSortButtonHolder();
   if (!sortButtonHolder) {
+    return;
+  }
+  const mountPoint = resolvePlayAllMountPoint(sortButtonHolder);
+  if (!mountPoint) {
     return;
   }
 
@@ -62,53 +58,51 @@ async function maybeRenderButton(channel: Channel) {
   );
   if (!targetPlayAllButton) {
     document.querySelector(".play-all-btn")?.remove();
-    YoutubeDOM.sortButtonHolder!.appendChild(playAllButton);
+    mountPoint.appendChild(playAllButton);
   }
 }
 
-async function renderDropdown(channel: Channel) {
-  if (document.querySelector("yt-flexible-actions-view-model .play-all-btns")) {
-    return;
-  }
-
-  const container = document.createElement("div");
-  container.className = "play-all-btns";
-
-  const button = document.createElement("button");
-  button.textContent = "Play All Buttons ▼";
-
-  const menu = document.createElement("div");
-  menu.className = "hidden";
-
-  for (const categoryKind of YoutubeDOM.categories) {
-    for (const sortKind of YoutubeDOM.sorts) {
-      const href = await channel.getPlaylistPath(categoryKind, sortKind);
-      if (href) {
-        const a = document.createElement("a");
-        a.href = href;
-        a.textContent = `${categoryKind} (${sortKind})`;
-        menu.appendChild(a);
-      }
+function resolvePlayAllMountPoint(sortButtonHolder: Element): Element | null {
+  const chipBar = YoutubeDOM.sortButtons[0]?.closest("chip-bar-view-model");
+  if (chipBar?.parentElement) {
+    let row = chipBar.parentElement.querySelector(".play-all-btn-row");
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "play-all-btn-row";
+      chipBar.insertAdjacentElement("afterend", row);
     }
+    return row;
   }
 
-  container.append(button, menu);
+  return sortButtonHolder;
+}
 
-  document
-    .querySelector("yt-flexible-actions-view-model")
-    ?.appendChild(container);
+async function waitForSortButtonHolder(
+  timeoutMs = 4000,
+): Promise<Element | undefined> {
+  const existingHolder = YoutubeDOM.sortButtonHolder;
+  if (existingHolder) {
+    return existingHolder;
+  }
 
-  let isOpen = false;
-  button.addEventListener("click", (e) => {
-    e.stopPropagation();
-    isOpen = !isOpen;
-    menu.classList.toggle("hidden", !isOpen);
-  });
-  menu.addEventListener("click", (e) => {
-    e.stopPropagation();
-  });
-  document.addEventListener("click", () => {
-    isOpen = false;
-    menu.classList.add("hidden");
+  return new Promise((resolve) => {
+    const observer = new MutationObserver(() => {
+      const holder = YoutubeDOM.sortButtonHolder;
+      if (holder) {
+        observer.disconnect();
+        resolve(holder);
+      }
+    });
+    observer.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["aria-selected"],
+    });
+
+    setTimeout(() => {
+      observer.disconnect();
+      resolve(undefined);
+    }, timeoutMs);
   });
 }

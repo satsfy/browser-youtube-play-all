@@ -24,7 +24,11 @@ export class Channel {
             c,
             Object.fromEntries(
               YoutubeDOM.sorts.map(
-                (s) => [s, resolvePlaylistPath(id, c, s)] as const,
+                (s) =>
+                  [
+                    s,
+                    resolvePlaylistPath(id, c, s).catch(() => ""),
+                  ] as const,
               ),
             ),
           ] as const,
@@ -37,11 +41,9 @@ export class Channel {
     categoryKind: CategoryKind,
     sortKind: SortKind,
   ): Promise<string> {
-    const oldestPlaylistPath = await this.playlistMap[categoryKind]["Oldest"];
-    const isValidCategory = oldestPlaylistPath !== "";
-    if (isValidCategory) {
-      return this.playlistMap[categoryKind][sortKind];
-    } else {
+    try {
+      return await this.playlistMap[categoryKind][sortKind];
+    } catch {
       return "";
     }
   }

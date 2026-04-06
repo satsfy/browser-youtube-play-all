@@ -27,6 +27,10 @@
   background-color: #9b33ff;
 }
 
+.play-all-btn-row {
+  margin-top: 12px;
+}
+
 .play-all-btns {
   position: relative;
 
